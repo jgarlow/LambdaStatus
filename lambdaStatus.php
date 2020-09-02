@@ -22,10 +22,15 @@ function getMetricStatistics(CloudWatchClient $cloudWatchClient, $namespace, $me
         ]);
 
         $maxConcurrent = 0;
+        $maxAverage = 0;
         $datapoints =  $result->get('Datapoints');
         foreach ($datapoints as $datapoint) {
             if ($datapoint['Maximum'] > $maxConcurrent) $maxConcurrent = $datapoint['Maximum'];
+            if ($datapoint['Average'] > $maxAverage) $maxAverage = $datapoint['Average'];
         }
+        echo '<td colspan="1">' . ceil($maxAverage ) . '</td>';
+        echo '<td colspan="1">' . ceil ($maxConcurrent) . '</td>';
+
         return $maxConcurrent;
     } catch (AwsException $e) {
         return 'Error: ' . $e->getAwsErrorMessage();
@@ -34,13 +39,13 @@ function getMetricStatistics(CloudWatchClient $cloudWatchClient, $namespace, $me
 
 $client = LambdaClient::factory(array(
     'version' => 'latest',
-    'profile' => 'default',
+    'profile' => 'nprinfra',
     'region'  => 'us-east-1'
 ));
 
 $metricsClient = new CloudWatchClient(array(
     'version' => 'latest',
-    'profile' => 'default',
+    'profile' => 'nprinfra',
     'region'  => 'us-east-1'
 ));
 
@@ -53,7 +58,6 @@ foreach ($result['Functions'] as $lambdaFunction) {
     $arn = $lambdaFunction['FunctionArn'];
 
     $namespace = "AWS/Lambda";
-    $metricName = "ConcurrentExecutions";
     $dimensions = [
         [
             'Name' => 'FunctionName',
@@ -61,24 +65,31 @@ foreach ($result['Functions'] as $lambdaFunction) {
         ],
     ];
 
-    $startTime = strtotime('-7 days');
+    $startTime = strtotime('-30 days');
     $endTime = strtotime('now');
     $period = 86400; // Seconds. (1 day = 86400 seconds.)
-    $statistics = array('Maximum');
+    $statistics = array('Maximum', 'Average');
+
+    $metricName = "ConcurrentExecutions";
     $unit = 'Count';
-    $maxConcurrent = getMetricStatistics($metricsClient, $namespace, $metricName,
+    getMetricStatistics($metricsClient, $namespace, $metricName,
         $dimensions, $startTime, $endTime, $period, $statistics, $unit);
 
-    echo '<td colspan="1">' . $maxConcurrent . '</td>';
+    if (empty($concurrency['ReservedConcurrentExecutions']))
+        echo '<td colspan="1"> not set </td>';
+    else
+        echo '<td colspan="1">' . $concurrency['ReservedConcurrentExecutions'] . '</td>';
 
+    $metricName = "Duration";
+    $unit = 'Milliseconds';
+    getMetricStatistics($metricsClient, $namespace, $metricName,
+        $dimensions, $startTime, $endTime, $period, $statistics, $unit);
 
     $concurrency =  $client->getFunctionConcurrency([
         'FunctionName' => $arn, // REQUIRED
     ]);
-    echo '<td colspan="1">' . $concurrency['ReservedConcurrentExecutions'] . '</td>';
     echo '<td colspan="1">' . $lambdaFunction['MemorySize'] . '</td>';
     echo '<td colspan="1">' . $lambdaFunction['Runtime'] . '</td>';
-    echo '<td colspan="1">Deployed</td>';
 
     echo "</tr> \n ";
 
